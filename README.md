@@ -1,26 +1,26 @@
 # Chord Ear
 
-Single-file web app che riconosce accordi di pianoforte (e altri strumenti polifonici) in tempo reale dal microfono del browser.
+Single-file web app that recognizes piano chords (and other polyphonic instruments) in real time from your browser microphone.
 
 **Live demo**: https://maxturazzini.github.io/aimax-chord-ear/
 
-Nessuna dipendenza esterna, nessuna build: tutto in [index.html](index.html) (HTML + CSS + JS).
+No external dependencies, no build step: everything lives in [index.html](index.html) (HTML + CSS + JS).
 
-## Come funziona
+## How it works
 
-Pipeline: microfono → Web Audio API (FFT 16384) → chromagram 12 pitch class con harmonic subtraction → template matching su 16 tipi di accordo → hysteresis → UI.
+Pipeline: microphone → Web Audio API (FFT 16384) → 12 pitch-class chromagram with harmonic subtraction → template matching over 16 chord types → hysteresis → UI.
 
-Documentazione completa dei parametri, dei preset e della pipeline in [CLAUDE.md](CLAUDE.md).
+Full documentation of parameters, presets and the pipeline is in [CLAUDE.md](CLAUDE.md).
 
-## Esecuzione locale
+## Run locally
 
 ```bash
 python3 -m http.server 8000
-# http://localhost:8000/
+# open http://localhost:8000/
 ```
 
-Safari non supporta `getUserMedia` da `file://`, serve un http server locale.
+Safari blocks `getUserMedia` on `file://`, so a local HTTP server is required.
 
-## Licenza
+## License
 
 MIT — by [Max Turazzini](https://maxturazzini.com) / AI, MAX
