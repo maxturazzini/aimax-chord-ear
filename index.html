@@ -1,0 +1,1728 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Chord Ear — Riconoscitore di Accordi</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600;700&family=Courier+Prime:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --gold: #c9a84c;
+    --gold-light: #e8c97a;
+    --ivory: #f5f0e8;
+    --muted: #4a4a5a;
+    --active: #2a2a3a;
+    --red: #e05555;
+    --green: #5db87a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--ivory);
+    font-family: 'Cormorant Garamond', serif;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  header {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 32px 20px 16px;
+    border-bottom: 1px solid #1e1e2e;
+  }
+
+  header h1 {
+    font-size: clamp(2rem, 6vw, 3rem);
+    font-weight: 300;
+    letter-spacing: 0.18em;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+
+  header p {
+    font-size: 0.85rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    margin-top: 4px;
+    font-family: 'Courier Prime', monospace;
+    text-transform: uppercase;
+  }
+
+  main {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    gap: 20px;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* Mic button */
+  #startBtn {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    border: 2px solid var(--gold);
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    position: relative;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #startBtn:hover { background: rgba(201,168,76,0.08); }
+
+  #startBtn.active {
+    border-color: var(--red);
+    box-shadow: 0 0 0 0 rgba(224,85,85,0.4);
+    animation: pulse 1.5s ease-out infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(224,85,85,0.4); }
+    100% { box-shadow: 0 0 0 20px rgba(224,85,85,0); }
+  }
+
+  #startBtn svg { transition: all 0.3s; }
+  #startBtn.active svg path { fill: var(--red); }
+
+  #btnLabel {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+
+  /* Chord Display */
+  #chordDisplay {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+    padding: 28px 24px;
+    text-align: center;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #chordDisplay::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    opacity: 0;
+    transition: opacity 0.4s;
+  }
+
+  #chordDisplay.has-chord::before { opacity: 1; }
+
+  #chordName {
+    font-size: clamp(3rem, 14vw, 5.5rem);
+    font-weight: 600;
+    color: var(--ivory);
+    line-height: 1;
+    letter-spacing: 0.02em;
+    transition: all 0.2s ease;
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+  }
+
+  #chordName.flash { animation: flash 0.15s ease; }
+  @keyframes flash {
+    0% { color: var(--gold-light); transform: scale(1.05); }
+    100% { color: var(--ivory); transform: scale(1); }
+  }
+
+  #chordType {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.2em;
+    color: var(--gold);
+    text-transform: uppercase;
+    min-height: 20px;
+  }
+
+  #detectedNotes {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+    min-height: 18px;
+  }
+
+  /* Visualizer */
+  #vizContainer {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+    overflow: hidden;
+    height: 70px;
+  }
+
+  canvas#viz {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  /* Notes detected — allineate su 12 colonne (una per pitch class) */
+  #notesGrid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+    width: 100%;
+  }
+
+  .note-pill {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    padding: 4px 0;
+    text-align: center;
+    border-radius: 2px;
+    border: 1px solid var(--muted);
+    color: var(--muted);
+    background: transparent;
+    transition: all 0.15s ease;
+  }
+
+  .note-pill.active {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: rgba(201,168,76,0.08);
+  }
+
+  /* Chord History */
+  #historySection {
+    width: 100%;
+  }
+
+  #historySection h3 {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.2em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+
+  #historyControls {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  #historyControls button {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    background: var(--surface2);
+    color: var(--ivory);
+    border: 1px solid #2a2a3a;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  #historyControls button:hover { border-color: var(--gold); color: var(--gold); }
+  #historyControls button.active { background: var(--gold); color: var(--bg); border-color: var(--gold); }
+  #historyText {
+    width: 100%;
+    min-height: 80px;
+    max-height: 260px;
+    background: var(--surface2);
+    border: 1px solid #1e1e2e;
+    border-radius: 3px;
+    padding: 12px 14px;
+    color: var(--ivory);
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    resize: vertical;
+    white-space: pre-wrap;
+    overflow-y: auto;
+  }
+
+  /* Status */
+  #status {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    text-transform: uppercase;
+    text-align: center;
+  }
+
+  #status.error { color: var(--red); }
+
+  /* Mini piano — 12 celle uguali per allineamento con note pill e trail */
+  #miniPiano {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+    padding: 8px 0 4px;
+    width: 100%;
+    height: 64px;
+    box-sizing: border-box;
+    align-items: stretch;
+  }
+
+  .piano-key {
+    position: relative;
+    border-radius: 0 0 3px 3px;
+    transition: background 0.1s, border-color 0.1s;
+    cursor: default;
+  }
+  .piano-key.white {
+    background: #e8e0d0;
+    border: 1px solid #bbb;
+  }
+  .piano-key.white.lit { background: var(--gold-light); border-color: var(--gold); }
+
+  .piano-key.black {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    height: 65%;
+    margin: 0 20%;
+    border-radius: 0 0 2px 2px;
+  }
+  .piano-key.black.lit { background: var(--gold); border-color: var(--gold-light); }
+
+  .piano-key .key-label {
+    position: absolute;
+    bottom: 3px;
+    left: 0; right: 0;
+    text-align: center;
+    font-family: 'Courier Prime', monospace;
+    font-size: 8px;
+    color: #555;
+    user-select: none;
+    pointer-events: none;
+  }
+  .piano-key.white.lit .key-label { color: #222; }
+  .piano-key.black .key-label { color: #888; bottom: 2px; font-size: 7px; }
+
+  footer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 16px;
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.62rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    border-top: 1px solid #1a1a22;
+  }
+
+  /* Piano roll trail panel */
+  #trailContainer {
+    width: 100%;
+    display: flex;
+    gap: 4px;
+    height: 180px;
+    background: var(--surface);
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+    padding: 8px;
+    box-sizing: border-box;
+  }
+  #trailLabels {
+    width: 26px;
+    display: flex;
+    flex-direction: column-reverse; /* C at bottom, B at top */
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.58rem;
+    color: var(--muted);
+  }
+  #trailLabels .trail-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  #trailLabels .trail-label.black { color: #5a5a6a; }
+  #trailCanvas {
+    flex: 1;
+    height: 100%;
+    background: #07070c;
+    border-radius: 3px;
+    display: block;
+  }
+
+  /* Chroma diagnostic panel */
+  #chromaPanel {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+    padding: 12px 14px;
+    display: flex;
+    gap: 4px;
+    align-items: flex-end;
+    height: 80px;
+  }
+  .chroma-bar {
+    flex: 1;
+    background: rgba(201,168,76,0.15);
+    border-radius: 2px 2px 0 0;
+    position: relative;
+    height: 2px;
+    transition: height 0.12s ease, background 0.12s;
+    min-height: 2px;
+  }
+  .chroma-bar.peak { background: var(--gold); }
+  .chroma-bar::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.6rem;
+    color: var(--muted);
+  }
+
+  /* Settings panel */
+  details#settings {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid #1e1e2e;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  details#settings summary {
+    padding: 12px 16px;
+    cursor: pointer;
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.15em;
+    color: var(--gold);
+    text-transform: uppercase;
+    list-style: none;
+    user-select: none;
+  }
+  details#settings summary::-webkit-details-marker { display: none; }
+  details#settings summary::before {
+    content: '▸ ';
+    transition: transform 0.2s;
+    display: inline-block;
+  }
+  details#settings[open] summary::before { content: '▾ '; }
+  .settings-body {
+    padding: 8px 16px 16px;
+    border-top: 1px solid #1e1e2e;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px dashed #1e1e2e;
+  }
+  .settings-group:last-child { border-bottom: none; }
+  .settings-group-title {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .slider-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 52px;
+    gap: 10px;
+    align-items: center;
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.72rem;
+    color: var(--ivory);
+  }
+  .slider-row label {
+    color: var(--ivory);
+    opacity: 0.85;
+  }
+  .slider-row input[type="range"] {
+    width: 100%;
+    accent-color: var(--gold);
+    height: 4px;
+  }
+  .slider-row .val {
+    text-align: right;
+    color: var(--gold);
+    font-weight: 700;
+  }
+  .preset-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 6px;
+  }
+  .preset-row select, .preset-row button, .preset-row input {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.7rem;
+    padding: 6px 10px;
+    background: var(--surface2);
+    color: var(--ivory);
+    border: 1px solid #2a2a3a;
+    border-radius: 3px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .preset-row input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+    text-transform: none;
+    cursor: text;
+  }
+  .preset-row button:hover { border-color: var(--gold); color: var(--gold); }
+  .preset-row button.danger:hover { border-color: var(--red); color: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Chord Ear</h1>
+  <p>Riconoscitore di accordi · Pianoforte</p>
+</header>
+
+<main>
+  <div style="text-align:center">
+    <button id="startBtn">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+        <path id="micIcon" d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 8h2a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.92V20h3v2H8v-2h3v-2.08A7 7 0 0 1 5 11z" fill="#c9a84c"/>
+      </svg>
+    </button>
+    <p id="btnLabel">Tocca per ascoltare</p>
+  </div>
+
+  <div id="status">In attesa di input...</div>
+
+  <div id="chordDisplay">
+    <div id="chordName">—</div>
+    <div id="chordType"></div>
+    <div id="detectedNotes"></div>
+  </div>
+
+  <div id="vizContainer">
+    <canvas id="viz"></canvas>
+  </div>
+
+  <!-- Mini Piano -->
+  <div id="miniPiano"></div>
+
+  <div id="notesGrid"></div>
+
+  <div id="trailContainer" title="Piano roll - scia temporale delle note">
+    <div id="trailLabels"></div>
+    <canvas id="trailCanvas"></canvas>
+  </div>
+
+  <div id="chromaPanel" title="Chromagram - energia per pitch class"></div>
+
+  <div id="historySection" style="display:none">
+    <h3>Accordi rilevati</h3>
+    <div id="historyControls">
+      <button id="historyModeTimestamp" data-mode="timestamp" class="active">Timestamp</button>
+      <button id="historyModeChart" data-mode="chart">Chart 4/4</button>
+      <button id="historyModeCompact" data-mode="compact">Compact</button>
+      <button id="historyCopyBtn">Copia</button>
+      <button id="historyClearBtn">Reset</button>
+    </div>
+    <textarea id="historyText" readonly placeholder="Gli accordi rilevati appariranno qui..."></textarea>
+  </div>
+
+  <details id="settings">
+    <summary>Parametri &amp; Preset</summary>
+    <div class="settings-body">
+
+      <div class="settings-group">
+        <div class="settings-group-title">Preset</div>
+        <div class="preset-row">
+          <select id="presetSelect"></select>
+          <button id="presetLoadBtn">Carica</button>
+          <button id="presetDeleteBtn" class="danger">Elimina</button>
+        </div>
+        <div class="preset-row">
+          <input type="text" id="presetName" placeholder="Nome nuovo preset..." maxlength="40">
+          <button id="presetSaveBtn">Salva</button>
+          <button id="presetResetBtn">Reset</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Stabilità (anti-flicker)</div>
+        <div class="slider-row">
+          <label title="Intervallo tra campionamenti (ms). Più basso = reagisce prima, ma più rumoroso">Tick (ms)</label>
+          <input type="range" id="p_tickMs" min="20" max="300" step="5">
+          <span class="val" id="v_tickMs"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Frame di media mobile sul chromagram. Finestra effettiva = tick × frames">Smoothing frames</label>
+          <input type="range" id="p_chromaSmooth" min="1" max="20" step="1">
+          <span class="val" id="v_chromaSmooth"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Frame consecutivi in cui un nuovo accordo deve vincere prima di sostituire quello a schermo">Confirm frames</label>
+          <input type="range" id="p_confirmFrames" min="1" max="10" step="1">
+          <span class="val" id="v_confirmFrames"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Gap di score minimo perché un nuovo accordo sostituisca subito quello a schermo">Change delta</label>
+          <input type="range" id="p_changeDelta" min="0" max="0.5" step="0.01">
+          <span class="val" id="v_changeDelta"></span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Silenzio &amp; Rumore</div>
+        <div class="slider-row">
+          <label title="Energia minima richiesta per fare detection (media su smoothing window)">Energy gate</label>
+          <input type="range" id="p_energyGate" min="0" max="30" step="0.5">
+          <span class="val" id="v_energyGate"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Picco spettrale minimo in dB">Peak dB gate</label>
+          <input type="range" id="p_peakDb" min="-100" max="-20" step="1">
+          <span class="val" id="v_peakDb"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Offset dB sopra la mediana del noise floor">Noise floor +dB</label>
+          <input type="range" id="p_noiseFloor" min="0" max="25" step="1">
+          <span class="val" id="v_noiseFloor"></span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Chromagram</div>
+        <div class="slider-row">
+          <label title="Peso armonica 3 (quinta perfetta) da sottrarre">H3 (quinta)</label>
+          <input type="range" id="p_h3" min="0" max="0.6" step="0.01">
+          <span class="val" id="v_h3"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Peso armonica 5 (terza maggiore) da sottrarre">H5 (terza)</label>
+          <input type="range" id="p_h5" min="0" max="0.6" step="0.01">
+          <span class="val" id="v_h5"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Peso armonica 7 (settima minore ~bemolle) da sottrarre">H7 (settima)</label>
+          <input type="range" id="p_h7" min="0" max="0.3" step="0.01">
+          <span class="val" id="v_h7"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Decay per ottava sopra C4 (1 = nessun decay)">Octave decay</label>
+          <input type="range" id="p_octaveDecay" min="0.5" max="1" step="0.01">
+          <span class="val" id="v_octaveDecay"></span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-title">Chord matching</div>
+        <div class="slider-row">
+          <label title="Soglia chroma per considerare una pitch class 'presente'">Present threshold</label>
+          <input type="range" id="p_presentThreshold" min="0" max="0.8" step="0.01">
+          <span class="val" id="v_presentThreshold"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Soglia chroma per mostrare una nota come attiva nella UI">Active threshold</label>
+          <input type="range" id="p_activeThreshold" min="0" max="0.8" step="0.01">
+          <span class="val" id="v_activeThreshold"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Penalità per note fuori dal template">α (extra)</label>
+          <input type="range" id="p_alpha" min="0" max="1.5" step="0.05">
+          <span class="val" id="v_alpha"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Penalità per note del template mancanti nel chroma">β (missing)</label>
+          <input type="range" id="p_beta" min="0" max="1" step="0.02">
+          <span class="val" id="v_beta"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Bonus score per triadi maggiori/minori">Prior triadi</label>
+          <input type="range" id="p_priorTriad" min="0.8" max="1.3" step="0.01">
+          <span class="val" id="v_priorTriad"></span>
+        </div>
+        <div class="slider-row">
+          <label title="Malus score per accordi estesi (9, 6, add9)">Prior estesi</label>
+          <input type="range" id="p_priorExt" min="0.7" max="1.2" step="0.01">
+          <span class="val" id="v_priorExt"></span>
+        </div>
+      </div>
+
+    </div>
+  </details>
+</main>
+
+<footer>Avvicina lo strumento al microfono per un migliore riconoscimento</footer>
+
+<script>
+// ─── Parametri ────────────────────────────────────────────────
+// Tutti i valori che governano la detection: esposti nella UI e salvabili come preset.
+const DEFAULT_PARAMS = {
+  // Stabilità
+  tickMs: 80,             // intervallo tra due campionamenti (ms). Min 20 - Max 300.
+  chromaSmooth: 10,       // frame di media mobile (finestra effettiva = tickMs × chromaSmooth)
+  confirmFrames: 4,       // frame consecutivi per confermare nuovo chord
+  changeDelta: 0.12,      // gap di score per switch immediato
+  // Silenzio & rumore
+  energyGate: 8,          // energia minima (lineare) per fare detection
+  peakDb: -55,            // picco spettrale minimo in dB
+  noiseFloor: 12,         // dB sopra la mediana banda
+  // Chromagram
+  h3: 0.35,               // peso harmonic subtraction: 3a armonica (quinta)
+  h5: 0.20,               // 5a armonica (terza magg)
+  h7: 0.08,               // 7a armonica (settima min bemolle)
+  octaveDecay: 0.85,      // decay per ottava sopra C4
+  // Chord matching
+  presentThreshold: 0.25, // soglia chroma per "nota presente"
+  activeThreshold: 0.35,  // soglia chroma per UI "nota attiva"
+  alpha: 0.6,             // penalità note extra
+  beta: 0.35,             // penalità note mancanti
+  priorTriad: 1.08,       // bonus Maj/Min
+  priorExt: 0.94,         // malus 9/6/add9
+};
+const PARAMS = { ...DEFAULT_PARAMS };
+
+const BUILTIN_PRESETS = {
+  'Default': { ...DEFAULT_PARAMS },
+  'Ambiente silenzioso': {
+    ...DEFAULT_PARAMS,
+    energyGate: 4, noiseFloor: 8, chromaSmooth: 8, confirmFrames: 3,
+    presentThreshold: 0.22, activeThreshold: 0.3,
+  },
+  'Ambiente rumoroso': {
+    ...DEFAULT_PARAMS,
+    energyGate: 15, noiseFloor: 16, peakDb: -45, chromaSmooth: 14, confirmFrames: 5,
+    presentThreshold: 0.3, activeThreshold: 0.4, changeDelta: 0.18,
+  },
+  'Piano acustico': {
+    ...DEFAULT_PARAMS,
+    h3: 0.4, h5: 0.25, h7: 0.1, octaveDecay: 0.8, chromaSmooth: 12,
+  },
+  'Voce / Strumento monofonico': {
+    ...DEFAULT_PARAMS,
+    chromaSmooth: 6, confirmFrames: 2, presentThreshold: 0.3,
+    priorTriad: 1.15, priorExt: 0.85,
+  },
+  'Reattivo (demo)': {
+    ...DEFAULT_PARAMS,
+    tickMs: 50, chromaSmooth: 4, confirmFrames: 1, changeDelta: 0.05,
+  },
+  'Lento / stabile': {
+    ...DEFAULT_PARAMS,
+    tickMs: 150, chromaSmooth: 12, confirmFrames: 5, changeDelta: 0.18,
+  },
+};
+const PRESETS_STORAGE_KEY = 'chordear_user_presets_v1';
+const LAST_PRESET_KEY = 'chordear_last_params_v1';
+
+function loadUserPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESETS_STORAGE_KEY) || '{}'); }
+  catch (_) { return {}; }
+}
+function saveUserPresets(presets) {
+  localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+}
+
+// ─── Audio Setup ──────────────────────────────────────────────
+let audioCtx, analyser, source, animId, currentStream;
+let listening = false;
+
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+// All 12 chromatic notes for the octave display
+const WHITE_NOTES = ['C','D','E','F','G','A','B'];
+const CHROMATIC = NOTE_NAMES;
+
+// Chord definitions: intervals (semitones from root)
+const CHORD_TYPES = [
+  { name: '', fullName: 'Maggiore',     intervals: [0,4,7] },
+  { name: 'm', fullName: 'Minore',      intervals: [0,3,7] },
+  { name: '7', fullName: 'Settima dom.',intervals: [0,4,7,10] },
+  { name: 'maj7', fullName: 'Maj7',     intervals: [0,4,7,11] },
+  { name: 'm7', fullName: 'Minore 7ª',  intervals: [0,3,7,10] },
+  { name: 'dim', fullName: 'Diminuito', intervals: [0,3,6] },
+  { name: 'aug', fullName: 'Aumentato', intervals: [0,4,8] },
+  { name: 'sus2', fullName: 'Sus2',     intervals: [0,2,7] },
+  { name: 'sus4', fullName: 'Sus4',     intervals: [0,5,7] },
+  { name: 'm7b5', fullName: 'Semi-dim', intervals: [0,3,6,10] },
+  { name: 'dim7', fullName: 'Dim7',     intervals: [0,3,6,9] },
+  { name: 'add9', fullName: 'Add9',     intervals: [0,4,7,14] },
+  { name: '6', fullName: 'Sesta',       intervals: [0,4,7,9] },
+  { name: 'm6', fullName: 'Min Sesta',  intervals: [0,3,7,9] },
+  { name: '9', fullName: 'Nona',        intervals: [0,4,7,10,14] },
+  { name: '5', fullName: 'Quinta (power)', intervals: [0,7] },
+];
+
+function freqToNoteIndex(freq) {
+  // Returns MIDI note number (A4=69=440Hz)
+  return Math.round(12 * Math.log2(freq / 440) + 69);
+}
+
+function midiToName(midi) {
+  return NOTE_NAMES[((midi % 12) + 12) % 12];
+}
+
+// ─── Chromagram ──────────────────────────────────────────────
+// Pitch Class Profile pesato: proietta l'energia dello spettro su 12 classi.
+// `dataFloat` è in dB (tipicamente -100..-10). Restituisce { chroma, energy, peakDb }.
+// - chroma: Float32Array[12] normalizzato (max=1)
+// - energy: somma magnitudini lineari (pre-normalizzazione) → gate assoluto
+// - peakDb: dB massimo trovato sopra floor → secondo gate
+function buildChromagram(dataFloat, sampleRate, fftSize) {
+  const chroma = new Float32Array(12);
+  const binSize = sampleRate / fftSize;
+  const minFreq = 55;    // A1
+  const maxFreq = 4200;
+  const minBin = Math.max(1, Math.floor(minFreq / binSize));
+  const maxBin = Math.min(Math.floor(maxFreq / binSize), dataFloat.length - 1);
+
+  // Noise floor: usa mediana della banda utile come baseline robusta
+  const band = [];
+  for (let i = minBin; i <= maxBin; i++) {
+    const v = dataFloat[i];
+    if (isFinite(v)) band.push(v);
+  }
+  if (band.length === 0) return { chroma, energy: 0, peakDb: -Infinity };
+  band.sort((a, b) => a - b);
+  const median = band[Math.floor(band.length / 2)];
+  // Clamp mediana: Safari può restituire valori molto bassi (-Infinity) per bin vuoti,
+  // che farebbero degenerare la soglia. minDecibels del Analyser è il vero pavimento.
+  const hardFloor = (analyser && isFinite(analyser.minDecibels)) ? analyser.minDecibels : -100;
+  const safeMedian = Math.max(median, hardFloor);
+  const floor = safeMedian + PARAMS.noiseFloor;
+
+  let energy = 0;
+  let peakDb = -Infinity;
+
+  for (let i = minBin; i <= maxBin; i++) {
+    const dB = dataFloat[i];
+    if (!isFinite(dB) || dB <= floor) continue;
+    if (dB > peakDb) peakDb = dB;
+    const mag = Math.pow(10, (dB - floor) / 20);
+    energy += mag;
+    const freq = i * binSize;
+    const midi = 12 * Math.log2(freq / 440) + 69;
+    const midiRound = Math.round(midi);
+    const pc = ((midiRound % 12) + 12) % 12;
+    const cents = 100 * (midi - midiRound);
+    const w = Math.max(0, 1 - Math.abs(cents) / 50);
+    const octaveWeight = midi >= 60 ? Math.pow(PARAMS.octaveDecay, (midi - 60) / 12) : 1;
+    chroma[pc] += mag * w * octaveWeight;
+  }
+
+  // Normalizza per massimo
+  let max = 0;
+  for (let i = 0; i < 12; i++) if (chroma[i] > max) max = chroma[i];
+  if (max > 0) {
+    for (let i = 0; i < 12; i++) chroma[i] /= max;
+  }
+
+  // ─── Harmonic Subtraction ─────────────────────────────────
+  // Ogni fondamentale "contamina" le sue armoniche:
+  //   3ª armonica → pc + 7 (quinta)
+  //   5ª armonica → pc + 4 (terza maggiore)
+  //   7ª armonica → pc + 10 (settima minore bemolle, ~31 cent calante)
+  // Sottraiamo frazioni pesate per "pulire" il chroma.
+  const cleaned = new Float32Array(12);
+  for (let i = 0; i < 12; i++) cleaned[i] = chroma[i];
+  for (let pc = 0; pc < 12; pc++) {
+    const src = chroma[pc];
+    if (src < 0.1) continue;
+    cleaned[(pc + 7) % 12] -= src * PARAMS.h3;
+    cleaned[(pc + 4) % 12] -= src * PARAMS.h5;
+    cleaned[(pc + 10) % 12] -= src * PARAMS.h7;
+  }
+  // Clamp a 0 e rinormalizza
+  let max2 = 0;
+  for (let i = 0; i < 12; i++) {
+    if (cleaned[i] < 0) cleaned[i] = 0;
+    if (cleaned[i] > max2) max2 = cleaned[i];
+  }
+  if (max2 > 0) for (let i = 0; i < 12; i++) cleaned[i] /= max2;
+
+  return { chroma: cleaned, chromaRaw: chroma, energy, peakDb };
+}
+
+// ─── Template Matching ───────────────────────────────────────
+// Ritorna { root, chord, score, pcs, chroma } o null.
+function matchChord(chroma) {
+  const presentThreshold = PARAMS.presentThreshold;
+
+  let best = null;
+  let bestScore = -Infinity;
+  const candidates = [];
+
+  for (let root = 0; root < 12; root++) {
+    for (const chord of CHORD_TYPES) {
+      const pcs = chord.intervals.map(iv => (root + iv) % 12);
+      const inTemplate = new Set(pcs);
+
+      let matchedEnergy = 0;
+      let extraEnergy = 0;
+      let missingCount = 0;
+
+      for (let pc = 0; pc < 12; pc++) {
+        if (inTemplate.has(pc)) matchedEnergy += chroma[pc];
+        else extraEnergy += chroma[pc];
+      }
+      for (const pc of pcs) {
+        if (chroma[pc] < presentThreshold) missingCount++;
+      }
+
+      const norm = pcs.length;
+      let score = (matchedEnergy / norm) - PARAMS.alpha * (extraEnergy / (12 - norm)) - PARAMS.beta * missingCount;
+
+      // Prior configurabili
+      let prior = 1.0;
+      if (chord.name === '' || chord.name === 'm') prior = PARAMS.priorTriad;
+      else if (chord.name === '9' || chord.name === 'add9' || chord.name === '6' || chord.name === 'm6') prior = PARAMS.priorExt;
+      score *= prior;
+
+      const rootPresent = chroma[root] >= presentThreshold;
+      const otherPresent = pcs.slice(1).some(p => chroma[p] >= presentThreshold);
+      if (!rootPresent || !otherPresent) continue;
+
+      candidates.push({ root, chord, score, pcs });
+      if (score > bestScore) {
+        bestScore = score;
+        best = { root, chord, score, pcs };
+      }
+    }
+  }
+
+  if (!best) return { best: null, candidates };
+  return {
+    best: {
+      root: NOTE_NAMES[best.root],
+      rootIdx: best.root,
+      chord: best.chord,
+      score: best.score,
+      pcs: best.pcs,
+      notes: best.pcs.map(p => NOTE_NAMES[p]),
+    },
+    candidates: candidates.sort((a, b) => b.score - a.score).slice(0, 3),
+  };
+}
+
+// ─── UI ──────────────────────────────────────────────────────
+let lastChordName = '';
+// history: array di { name, startMs, endMs }. Persistente: NON troncata.
+let history = [];
+let sessionStartMs = 0;
+let historyMode = 'timestamp'; // 'timestamp' | 'chart' | 'compact'
+
+function setStatus(msg, isError = false) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = isError ? 'error' : '';
+}
+
+function updateChordUI(result, noteNames) {
+  const display = document.getElementById('chordDisplay');
+  const chordName = document.getElementById('chordName');
+  const chordType = document.getElementById('chordType');
+  const detectedNotes = document.getElementById('detectedNotes');
+
+  if (result) {
+    const full = result.root + result.chord.name;
+    if (full !== lastChordName) {
+      chordName.textContent = full;
+      chordName.classList.remove('flash');
+      void chordName.offsetWidth;
+      chordName.classList.add('flash');
+      chordType.textContent = result.chord.fullName;
+      lastChordName = full;
+      display.classList.add('has-chord');
+
+      // History persistente con timing
+      const now = Date.now();
+      if (sessionStartMs === 0) sessionStartMs = now;
+      const last = history[history.length - 1];
+      if (last) last.endMs = now; // chiudi durata del precedente
+      if (!last || last.name !== full) {
+        history.push({ name: full, startMs: now, endMs: now });
+        updateHistory();
+      }
+    }
+    detectedNotes.textContent = noteNames.join(' · ');
+  } else {
+    if (noteNames.length > 0) {
+      detectedNotes.textContent = noteNames.join(' · ');
+      if (noteNames.length === 1) {
+        chordName.textContent = noteNames[0];
+        chordType.textContent = 'nota singola';
+        lastChordName = '';
+      }
+    } else {
+      chordName.textContent = '—';
+      chordType.textContent = '';
+      detectedNotes.textContent = '';
+      lastChordName = '';
+      display.classList.remove('has-chord');
+    }
+  }
+}
+
+// ─── History: formattazione ─────────────────────────────────
+function fmtTime(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+function fmtDur(ms) {
+  return (ms / 1000).toFixed(1) + 's';
+}
+
+function formatHistoryTimestamp() {
+  // Chiude l'ultimo chord all'istante corrente per mostrare durata live
+  const now = Date.now();
+  return history.map((h, i) => {
+    const startRel = h.startMs - sessionStartMs;
+    const end = (i === history.length - 1) ? now : h.endMs;
+    const dur = end - h.startMs;
+    return `[${fmtTime(startRel)}] ${h.name.padEnd(8)} (${fmtDur(dur)})`;
+  }).join('\n');
+}
+
+function formatHistoryChart() {
+  // Real Book style: 4 accordi per linea, separati da |
+  // Ogni chord occupa uno "spazio bar" in base alla sua durata.
+  // Semplificazione: 1 barra = 1 chord rilevato (non usiamo BPM reale).
+  const chords = history.map(h => h.name);
+  const bars = [];
+  for (let i = 0; i < chords.length; i += 4) {
+    const line = '| ' + chords.slice(i, i + 4).map(c => c.padEnd(7)).join('| ') + '|';
+    bars.push(line);
+  }
+  return bars.join('\n');
+}
+
+function formatHistoryCompact() {
+  // Compresso: solo la sequenza, separata da →
+  return history.map(h => h.name).join(' → ');
+}
+
+function updateHistory() {
+  const section = document.getElementById('historySection');
+  const textarea = document.getElementById('historyText');
+  if (history.length === 0) {
+    section.style.display = 'none';
+    textarea.value = '';
+    return;
+  }
+  section.style.display = '';
+  let text = '';
+  if (historyMode === 'timestamp') text = formatHistoryTimestamp();
+  else if (historyMode === 'chart') text = formatHistoryChart();
+  else text = formatHistoryCompact();
+  // Preserva scroll solo se non siamo in fondo
+  const wasAtBottom = textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 5;
+  textarea.value = text;
+  if (wasAtBottom) textarea.scrollTop = textarea.scrollHeight;
+}
+
+function setHistoryMode(mode) {
+  historyMode = mode;
+  document.querySelectorAll('#historyControls button[data-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  updateHistory();
+}
+
+function copyHistory() {
+  const textarea = document.getElementById('historyText');
+  textarea.select();
+  try {
+    document.execCommand('copy');
+    const btn = document.getElementById('historyCopyBtn');
+    const orig = btn.textContent;
+    btn.textContent = 'Copiato ✓';
+    setTimeout(() => btn.textContent = orig, 1200);
+  } catch (_) {}
+  window.getSelection().removeAllRanges();
+}
+
+function clearHistory() {
+  history = [];
+  sessionStartMs = 0;
+  updateHistory();
+}
+
+// ─── Mini Piano ───────────────────────────────────────────────
+// Griglia 12-col allineata a note-pill e al trail sotto.
+// Diasi/bemolli (C#, D#, F#, G#, A#) come tasti neri piu stretti e alti.
+function buildMiniPiano() {
+  const container = document.getElementById('miniPiano');
+  const BLACK = new Set([1, 3, 6, 8, 10]);
+  container.innerHTML = NOTE_NAMES.map((n, i) => {
+    const cls = BLACK.has(i) ? 'black' : 'white';
+    return `<div class="piano-key ${cls}" data-note="${n}"><span class="key-label">${n}</span></div>`;
+  }).join('');
+}
+
+function updatePiano(activeNotes) {
+  document.querySelectorAll('#miniPiano .piano-key').forEach(k => {
+    k.classList.toggle('lit', activeNotes.includes(k.dataset.note));
+  });
+}
+
+// ─── Notes Grid ──────────────────────────────────────────────
+function buildNotesGrid() {
+  const grid = document.getElementById('notesGrid');
+  grid.innerHTML = NOTE_NAMES.map(n =>
+    `<span class="note-pill" data-note="${n}">${n}</span>`
+  ).join('');
+}
+
+function updateNotesGrid(activeNotes) {
+  document.querySelectorAll('.note-pill').forEach(p => {
+    p.classList.toggle('active', activeNotes.includes(p.dataset.note));
+  });
+}
+
+// ─── Visualizer ──────────────────────────────────────────────
+let vizCtx, vizW, vizH, vizData;
+
+function resizeVizCanvas() {
+  const canvas = document.getElementById('viz');
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  vizCtx = canvas.getContext('2d');
+  vizCtx.setTransform(1, 0, 0, 1, 0, 0); // reset
+  vizCtx.scale(dpr, dpr);
+  vizW = canvas.offsetWidth;
+  vizH = canvas.offsetHeight;
+}
+
+function drawViz() {
+  resizeVizCanvas();
+  const bufLen = analyser.frequencyBinCount;
+  vizData = new Uint8Array(bufLen);
+
+  function draw() {
+    animId = requestAnimationFrame(draw);
+    analyser.getByteFrequencyData(vizData);
+
+    vizCtx.fillStyle = '#111118';
+    vizCtx.fillRect(0, 0, vizW, vizH);
+
+    const barW = vizW / 120;
+    const step = Math.floor(bufLen / 120);
+
+    for (let i = 0; i < 120; i++) {
+      const val = vizData[i * step] / 255;
+      const h = val * vizH;
+      const hue = 40 + val * 20;
+      const alpha = 0.4 + val * 0.6;
+      vizCtx.fillStyle = `hsla(${hue}, 70%, 55%, ${alpha})`;
+      vizCtx.fillRect(i * (barW + 1), vizH - h, barW, h);
+    }
+  }
+
+  draw();
+}
+
+// ─── Detection Loop ──────────────────────────────────────────
+let detectionTimer = null;
+let chromaHistory = [];
+let energyHistory = [];
+let pendingChord = null;
+let pendingCount = 0;
+let displayedChordKey = '';
+
+const DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
+
+function chordKey(match) {
+  return match ? match.root + match.chord.name : '';
+}
+
+function averageChroma() {
+  const avg = new Float32Array(12);
+  if (chromaHistory.length === 0) return avg;
+  for (const c of chromaHistory) {
+    for (let i = 0; i < 12; i++) avg[i] += c[i];
+  }
+  for (let i = 0; i < 12; i++) avg[i] /= chromaHistory.length;
+  // Rinormalizza (i frame sono già normalizzati singolarmente)
+  let max = 0;
+  for (let i = 0; i < 12; i++) if (avg[i] > max) max = avg[i];
+  if (max > 0) for (let i = 0; i < 12; i++) avg[i] /= max;
+  return avg;
+}
+
+function startDetection() {
+  // Massima risoluzione disponibile: 16384 se supportato (→ 2.7Hz/bin @ 44.1k)
+  let fftSize = 16384;
+  try {
+    analyser.fftSize = fftSize;
+  } catch (e) {
+    fftSize = 8192;
+    analyser.fftSize = fftSize;
+  }
+  const bufLen = analyser.frequencyBinCount;
+  const dataFloat = new Float32Array(bufLen);
+
+  chromaHistory = [];
+  energyHistory = [];
+  pendingChord = null;
+  pendingCount = 0;
+  displayedChordKey = '';
+  lastChordName = '';
+
+  // Tutta la logica di un frame. I `return` interni escono solo da qui,
+  // non dal wrapper `tick` che deve sempre schedulare il prossimo ciclo.
+  const runFrame = () => {
+    analyser.getFloatFrequencyData(dataFloat);
+    const sampleRate = audioCtx.sampleRate;
+
+    // 1) Chromagram frame corrente + energia
+    const { chroma: chromaFrame, energy, peakDb } = buildChromagram(dataFloat, sampleRate, fftSize);
+
+    // 2) Energy gate: se il segnale è debole (silenzio/rumore ambiente) → reset
+    energyHistory.push(energy);
+    if (energyHistory.length > PARAMS.chromaSmooth) energyHistory.shift();
+    const avgEnergy = energyHistory.reduce((a, b) => a + b, 0) / energyHistory.length;
+
+    if (avgEnergy < PARAMS.energyGate || peakDb < PARAMS.peakDb) {
+      // Silenzio o rumore → pulisci tutto
+      chromaHistory = [];
+      pendingChord = null;
+      pendingCount = 0;
+      if (displayedChordKey !== '') {
+        displayedChordKey = '';
+        updateChordUI(null, []);
+      }
+      updateNotesGrid([]);
+      updatePiano([]);
+      updateChromaPanel(new Float32Array(12));
+      updateTrail(new Float32Array(12));
+      if (DEBUG) console.log(`gate: energy=${avgEnergy.toFixed(1)} peakDb=${peakDb.toFixed(1)}`);
+      return;
+    }
+
+    // 3) Smoothing temporale
+    chromaHistory.push(chromaFrame);
+    if (chromaHistory.length > PARAMS.chromaSmooth) chromaHistory.shift();
+
+    // Attendi buffer pieno almeno a metà prima di fare matching
+    if (chromaHistory.length < Math.ceil(PARAMS.chromaSmooth / 2)) {
+      return;
+    }
+
+    const chroma = averageChroma();
+
+    // 4) Note attive per la UI (per mini piano + pill)
+    const activeNotes = [];
+    for (let i = 0; i < 12; i++) {
+      if (chroma[i] >= PARAMS.activeThreshold) activeNotes.push(NOTE_NAMES[i]);
+    }
+    updateNotesGrid(activeNotes);
+    updatePiano(activeNotes);
+    updateChromaPanel(chroma);
+    updateTrail(chroma);
+
+    if (activeNotes.length === 0) {
+      pendingChord = null;
+      pendingCount = 0;
+      if (displayedChordKey !== '') {
+        displayedChordKey = '';
+        updateChordUI(null, []);
+      }
+      return;
+    }
+    if (activeNotes.length === 1) {
+      pendingChord = null;
+      pendingCount = 0;
+      displayedChordKey = '';
+      updateChordUI(null, activeNotes);
+      return;
+    }
+
+    // 4) Chord matching
+    const { best, candidates } = matchChord(chroma);
+
+    if (DEBUG) {
+      console.log('chord top3:', candidates.map(c =>
+        `${NOTE_NAMES[c.root]}${c.chord.name}:${c.score.toFixed(3)}`
+      ).join(' | '));
+    }
+
+    if (!best) {
+      updateChordUI(null, activeNotes);
+      return;
+    }
+
+    // 5) Hysteresis: cambio immediato se gap significativo, altrimenti conferma
+    const newKey = chordKey(best);
+    if (newKey === displayedChordKey) {
+      pendingChord = null;
+      pendingCount = 0;
+      // Ordina note partendo dalla root
+      const rootIdx = best.rootIdx;
+      const orderedNotes = activeNotes.slice().sort((a, b) => {
+        const ai = (NOTE_NAMES.indexOf(a) - rootIdx + 12) % 12;
+        const bi = (NOTE_NAMES.indexOf(b) - rootIdx + 12) % 12;
+        return ai - bi;
+      });
+      updateChordUI(best, orderedNotes);
+    } else {
+      // Nuovo candidato — richiede conferma o gap sufficiente
+      const top = candidates[0];
+      const second = candidates[1];
+      const gap = second ? top.score - second.score : top.score;
+
+      if (pendingChord === newKey) pendingCount++;
+      else { pendingChord = newKey; pendingCount = 1; }
+
+      if (gap >= PARAMS.changeDelta || pendingCount >= PARAMS.confirmFrames) {
+        displayedChordKey = newKey;
+        pendingChord = null;
+        pendingCount = 0;
+        const rootIdx = best.rootIdx;
+        const orderedNotes = activeNotes.slice().sort((a, b) => {
+          const ai = (NOTE_NAMES.indexOf(a) - rootIdx + 12) % 12;
+          const bi = (NOTE_NAMES.indexOf(b) - rootIdx + 12) % 12;
+          return ai - bi;
+        });
+        updateChordUI(best, orderedNotes);
+      }
+      // Altrimenti mantieni UI corrente (no flicker)
+    }
+  }; // end runFrame
+
+  const tick = () => {
+    if (!listening) return;
+    try { runFrame(); } catch (e) { console.error('detection tick error:', e); }
+    detectionTimer = setTimeout(tick, Math.max(20, Math.min(300, PARAMS.tickMs)));
+  };
+  tick();
+}
+
+// ─── Toggle ──────────────────────────────────────────────────
+async function toggleListening() {
+  if (listening) {
+    stopListening();
+    return;
+  }
+
+  // Safari blocca getUserMedia su file:// — verifica protocollo
+  if (window.location.protocol === 'file:') {
+    setStatus('Safari richiede HTTP. Usa un server locale.', true);
+    alert(
+      'Su Safari non è possibile accedere al microfono da un file locale (file://).\n\n' +
+      'Soluzioni:\n' +
+      '1. Apri Terminale e lancia:\n' +
+      '   cd "cartella-del-file" && python3 -m http.server 8000\n' +
+      '   poi apri http://localhost:8000\n\n' +
+      '2. Oppure usa Chrome/Firefox che funzionano anche da file://.'
+    );
+    return;
+  }
+
+  // Verifica disponibilità API microfono
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    setStatus('API microfono non disponibile in questo browser', true);
+    return;
+  }
+
+  try {
+    setStatus('Richiesta accesso microfono...');
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      }
+    });
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+
+    // Safari richiede resume() esplicito dopo un gesto utente
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+
+    analyser = audioCtx.createAnalyser();
+    // Smoothing basso: la media temporale è gestita da chromaHistory (6 frame)
+    analyser.smoothingTimeConstant = 0.3;
+    analyser.minDecibels = -100;
+    analyser.maxDecibels = -10;
+
+    source = audioCtx.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    listening = true;
+    currentStream = stream;
+    document.getElementById('startBtn').classList.add('active');
+    document.getElementById('btnLabel').textContent = 'Tocca per fermare';
+    setStatus('In ascolto — suona un accordo');
+
+    drawViz();
+    startDetection();
+
+  } catch (e) {
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+      setStatus('Accesso al microfono negato. Controlla Impostazioni > Safari > Microfono.', true);
+    } else if (e.name === 'NotFoundError') {
+      setStatus('Nessun microfono trovato', true);
+    } else if (e.name === 'NotReadableError') {
+      setStatus('Microfono in uso da un\'altra app', true);
+    } else {
+      setStatus('Errore: ' + e.message, true);
+    }
+    console.error('Microphone error:', e);
+  }
+}
+
+function stopListening() {
+  listening = false;
+  if (detectionTimer) { clearTimeout(detectionTimer); detectionTimer = null; }
+  cancelAnimationFrame(animId);
+  if (source) try { source.disconnect(); } catch (_) {}
+  // Rilascia le tracce del microfono (necessario per Safari)
+  if (currentStream) {
+    currentStream.getTracks().forEach(track => track.stop());
+    currentStream = null;
+  }
+  if (audioCtx && audioCtx.state !== 'closed') {
+    try { audioCtx.close(); } catch (_) {}
+  }
+
+  // Reset stato detection
+  chromaHistory = [];
+  energyHistory = [];
+  pendingChord = null;
+  pendingCount = 0;
+  displayedChordKey = '';
+
+  document.getElementById('startBtn').classList.remove('active');
+  document.getElementById('btnLabel').textContent = 'Tocca per ascoltare';
+  setStatus('In pausa');
+  updateNotesGrid([]);
+  updatePiano([]);
+  updateChordUI(null, []);
+  updateChromaPanel(new Float32Array(12));
+
+  // Clear canvas
+  const canvas = document.getElementById('viz');
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111118';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ─── Chroma Panel ────────────────────────────────────────────
+function buildChromaPanel() {
+  const panel = document.getElementById('chromaPanel');
+  panel.innerHTML = NOTE_NAMES.map(n =>
+    `<div class="chroma-bar" data-note="${n}" data-label="${n}"></div>`
+  ).join('');
+}
+function updateChromaPanel(chroma) {
+  const bars = document.querySelectorAll('#chromaPanel .chroma-bar');
+  let max = 0;
+  for (let i = 0; i < 12; i++) if (chroma[i] > max) max = chroma[i];
+  bars.forEach((bar, i) => {
+    const v = chroma[i] || 0;
+    const h = Math.round(v * 56); // max 56px (panel altezza ~80 - padding)
+    bar.style.height = Math.max(2, h) + 'px';
+    bar.classList.toggle('peak', v >= PARAMS.activeThreshold);
+  });
+}
+
+// ─── Trail / Piano Roll ──────────────────────────────────────
+// Canvas scorrevole: ogni tick una colonna a destra, scroll verso sinistra.
+// 12 corsie: C in basso, B in alto. Intensità gold = chroma[i].
+const BLACK_PCS = new Set([1, 3, 6, 8, 10]); // C#, D#, F#, G#, A#
+const TRAIL_COL_W = 3; // px per frame
+
+function buildTrailLabels() {
+  const labels = document.getElementById('trailLabels');
+  // column-reverse in CSS → C va alla base. Ordino 0→11 (C..B).
+  labels.innerHTML = NOTE_NAMES.map((n, i) =>
+    `<div class="trail-label ${BLACK_PCS.has(i) ? 'black' : ''}">${n}</div>`
+  ).join('');
+}
+
+function initTrailCanvas() {
+  const canvas = document.getElementById('trailCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(100, Math.floor(rect.width * dpr));
+  canvas.height = Math.max(40, Math.floor(rect.height * dpr));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#07070c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // gridlines leggere tra corsie
+  const rowH = canvas.height / 12;
+  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  for (let i = 0; i < 12; i++) {
+    if (BLACK_PCS.has(i)) ctx.fillRect(0, (11 - i) * rowH, canvas.width, rowH);
+  }
+}
+
+function resetTrailCanvas() {
+  const canvas = document.getElementById('trailCanvas');
+  if (!canvas.width) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#07070c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const rowH = canvas.height / 12;
+  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  for (let i = 0; i < 12; i++) {
+    if (BLACK_PCS.has(i)) ctx.fillRect(0, (11 - i) * rowH, canvas.width, rowH);
+  }
+}
+
+function updateTrail(chroma) {
+  const canvas = document.getElementById('trailCanvas');
+  if (!canvas.width) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const colW = TRAIL_COL_W * (window.devicePixelRatio || 1);
+  const rowH = h / 12;
+
+  // Scroll tutto verso sinistra di colW
+  const img = ctx.getImageData(colW, 0, w - colW, h);
+  ctx.putImageData(img, 0, 0);
+  // Ridipingi la colonna a destra (sfondo + gridlines)
+  ctx.fillStyle = '#07070c';
+  ctx.fillRect(w - colW, 0, colW, h);
+  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  for (let i = 0; i < 12; i++) {
+    if (BLACK_PCS.has(i)) ctx.fillRect(w - colW, (11 - i) * rowH, colW, rowH);
+  }
+
+  // Disegna le note
+  for (let i = 0; i < 12; i++) {
+    const v = Math.min(1, Math.max(0, chroma[i] || 0));
+    if (v < 0.08) continue;
+    const y = (11 - i) * rowH;
+    const active = v >= PARAMS.activeThreshold;
+    const alpha = 0.15 + v * 0.85;
+    ctx.fillStyle = active
+      ? `rgba(255,220,140,${alpha})`
+      : `rgba(201,168,76,${alpha * 0.7})`;
+    // piccolo padding verticale per separare le corsie
+    ctx.fillRect(w - colW, y + 1, colW, Math.max(1, rowH - 2));
+    // glow sottile per note attive
+    if (active) {
+      ctx.fillStyle = `rgba(255,255,200,${v * 0.4})`;
+      ctx.fillRect(w - colW, y + rowH / 2 - 1, colW, 2);
+    }
+  }
+}
+
+window.addEventListener('resize', () => {
+  // Re-init preserva solo la grid (il contenuto storico viene perso).
+  initTrailCanvas();
+});
+
+// ─── Settings UI ─────────────────────────────────────────────
+const SLIDER_MAP = [
+  ['tickMs',           'p_tickMs',           'v_tickMs',           v => v.toFixed(0) + 'ms'],
+  ['chromaSmooth',     'p_chromaSmooth',     'v_chromaSmooth',     v => v.toFixed(0)],
+  ['confirmFrames',    'p_confirmFrames',    'v_confirmFrames',    v => v.toFixed(0)],
+  ['changeDelta',      'p_changeDelta',      'v_changeDelta',      v => v.toFixed(2)],
+  ['energyGate',       'p_energyGate',       'v_energyGate',       v => v.toFixed(1)],
+  ['peakDb',           'p_peakDb',           'v_peakDb',           v => v.toFixed(0)],
+  ['noiseFloor',       'p_noiseFloor',       'v_noiseFloor',       v => v.toFixed(0)],
+  ['h3',               'p_h3',               'v_h3',               v => v.toFixed(2)],
+  ['h5',               'p_h5',               'v_h5',               v => v.toFixed(2)],
+  ['h7',               'p_h7',               'v_h7',               v => v.toFixed(2)],
+  ['octaveDecay',      'p_octaveDecay',      'v_octaveDecay',      v => v.toFixed(2)],
+  ['presentThreshold', 'p_presentThreshold', 'v_presentThreshold', v => v.toFixed(2)],
+  ['activeThreshold',  'p_activeThreshold',  'v_activeThreshold',  v => v.toFixed(2)],
+  ['alpha',            'p_alpha',            'v_alpha',            v => v.toFixed(2)],
+  ['beta',             'p_beta',             'v_beta',             v => v.toFixed(2)],
+  ['priorTriad',       'p_priorTriad',       'v_priorTriad',       v => v.toFixed(2)],
+  ['priorExt',         'p_priorExt',         'v_priorExt',         v => v.toFixed(2)],
+];
+
+function applyParamsToUI() {
+  SLIDER_MAP.forEach(([key, sliderId, labelId, fmt]) => {
+    const slider = document.getElementById(sliderId);
+    const label = document.getElementById(labelId);
+    if (!slider || !label) return;
+    slider.value = PARAMS[key];
+    label.textContent = fmt(PARAMS[key]);
+  });
+}
+function wireSliders() {
+  SLIDER_MAP.forEach(([key, sliderId, labelId, fmt]) => {
+    const slider = document.getElementById(sliderId);
+    const label = document.getElementById(labelId);
+    if (!slider || !label) return;
+    slider.addEventListener('input', () => {
+      PARAMS[key] = parseFloat(slider.value);
+      label.textContent = fmt(PARAMS[key]);
+      persistLastParams();
+    });
+  });
+}
+
+function persistLastParams() {
+  try { localStorage.setItem(LAST_PRESET_KEY, JSON.stringify(PARAMS)); } catch (_) {}
+}
+function loadLastParams() {
+  try {
+    const s = localStorage.getItem(LAST_PRESET_KEY);
+    if (!s) return;
+    const saved = JSON.parse(s);
+    Object.assign(PARAMS, DEFAULT_PARAMS, saved);
+  } catch (_) {}
+}
+
+// ─── Preset Management ───────────────────────────────────────
+function refreshPresetSelect() {
+  const sel = document.getElementById('presetSelect');
+  const user = loadUserPresets();
+  const builtinNames = Object.keys(BUILTIN_PRESETS);
+  const userNames = Object.keys(user);
+  let html = '<optgroup label="Built-in">';
+  for (const n of builtinNames) html += `<option value="b:${n}">${n}</option>`;
+  html += '</optgroup>';
+  if (userNames.length) {
+    html += '<optgroup label="Custom">';
+    for (const n of userNames) html += `<option value="u:${n}">${n}</option>`;
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+}
+function loadPreset(fullKey) {
+  const [kind, name] = fullKey.split(/:(.+)/);
+  let src = null;
+  if (kind === 'b') src = BUILTIN_PRESETS[name];
+  else if (kind === 'u') src = loadUserPresets()[name];
+  if (!src) return;
+  Object.assign(PARAMS, DEFAULT_PARAMS, src);
+  applyParamsToUI();
+  persistLastParams();
+}
+function wirePresetControls() {
+  document.getElementById('presetLoadBtn').addEventListener('click', () => {
+    const sel = document.getElementById('presetSelect');
+    if (sel.value) loadPreset(sel.value);
+  });
+  document.getElementById('presetSaveBtn').addEventListener('click', () => {
+    const name = document.getElementById('presetName').value.trim();
+    if (!name) { alert('Inserisci un nome per il preset'); return; }
+    if (BUILTIN_PRESETS[name]) { alert('Nome riservato, scegline un altro'); return; }
+    const user = loadUserPresets();
+    user[name] = { ...PARAMS };
+    saveUserPresets(user);
+    refreshPresetSelect();
+    document.getElementById('presetSelect').value = 'u:' + name;
+    document.getElementById('presetName').value = '';
+  });
+  document.getElementById('presetDeleteBtn').addEventListener('click', () => {
+    const sel = document.getElementById('presetSelect');
+    if (!sel.value.startsWith('u:')) { alert('I preset built-in non sono eliminabili'); return; }
+    const name = sel.value.slice(2);
+    if (!confirm(`Eliminare il preset "${name}"?`)) return;
+    const user = loadUserPresets();
+    delete user[name];
+    saveUserPresets(user);
+    refreshPresetSelect();
+  });
+  document.getElementById('presetResetBtn').addEventListener('click', () => {
+    Object.assign(PARAMS, DEFAULT_PARAMS);
+    applyParamsToUI();
+    persistLastParams();
+  });
+}
+
+// ─── History controls wire-up ───────────────────────────────
+function wireHistoryControls() {
+  document.querySelectorAll('#historyControls button[data-mode]').forEach(b => {
+    b.addEventListener('click', () => setHistoryMode(b.dataset.mode));
+  });
+  document.getElementById('historyCopyBtn').addEventListener('click', copyHistory);
+  document.getElementById('historyClearBtn').addEventListener('click', clearHistory);
+}
+
+// Refresh "live" della durata dell'ultimo chord ogni 500ms
+setInterval(() => {
+  if (history.length > 0 && document.getElementById('historySection').style.display !== 'none') {
+    if (historyMode === 'timestamp') updateHistory();
+  }
+}, 500);
+
+// ─── Init ────────────────────────────────────────────────────
+loadLastParams();
+buildMiniPiano();
+buildNotesGrid();
+buildChromaPanel();
+buildTrailLabels();
+// Canvas size dopo il layout
+requestAnimationFrame(() => initTrailCanvas());
+refreshPresetSelect();
+applyParamsToUI();
+wireSliders();
+wirePresetControls();
+wireHistoryControls();
+document.getElementById('startBtn').addEventListener('click', toggleListening);
+document.getElementById('startBtn').addEventListener('touchend', function(e) {
+  e.preventDefault();
+  toggleListening();
+});
+// Canvas viz: ridimensiona al resize finestra (evita distorsione)
+window.addEventListener('resize', () => {
+  if (listening) resizeVizCanvas();
+});
+</script>
+</body>
+</html>
