@@ -359,6 +359,62 @@
     border-top: 1px solid #1a1a22;
   }
 
+  /* Piano roll header + toggle */
+  #trailHeader {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px;
+    margin-bottom: -4px;
+  }
+  .section-label {
+    font-family: 'Courier Prime', monospace;
+    font-size: 0.66rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 18px;
+    cursor: pointer;
+  }
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #2a2a3a;
+    border: 1px solid #3a3a4a;
+    border-radius: 18px;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 12px;
+    width: 12px;
+    left: 2px;
+    top: 2px;
+    background: #888;
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-slider {
+    background: rgba(201,168,76,0.2);
+    border-color: var(--gold);
+  }
+  .toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(18px);
+    background: var(--gold);
+  }
+
   /* Piano roll trail panel */
   #trailContainer {
     width: 100%;
@@ -567,6 +623,13 @@
 
   <div id="notesGrid"></div>
 
+  <div id="trailHeader">
+    <span class="section-label">Piano Roll</span>
+    <label class="toggle-switch" title="Show / hide piano roll">
+      <input type="checkbox" id="trailToggle" checked>
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
   <div id="trailContainer" title="Piano roll - note trail over time">
     <div id="trailLabels"></div>
     <canvas id="trailCanvas"></canvas>
@@ -1539,7 +1602,7 @@ function resetTrailCanvas() {
 
 function updateTrail(chroma) {
   const canvas = document.getElementById('trailCanvas');
-  if (!canvas.width) return;
+  if (!canvas.width || !canvas.offsetParent) return; // hidden o non ancora dimensionato
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   const colW = TRAIL_COL_W * (window.devicePixelRatio || 1);
@@ -1719,6 +1782,23 @@ buildChromaPanel();
 buildTrailLabels();
 // Canvas size dopo il layout
 requestAnimationFrame(() => initTrailCanvas());
+
+// Piano Roll toggle (persistente)
+const TRAIL_VISIBLE_KEY = 'chordear_trail_visible_v1';
+function applyTrailVisibility(visible) {
+  document.getElementById('trailContainer').style.display = visible ? '' : 'none';
+  if (visible) requestAnimationFrame(() => initTrailCanvas());
+}
+const trailToggle = document.getElementById('trailToggle');
+const savedTrailVisible = localStorage.getItem(TRAIL_VISIBLE_KEY);
+if (savedTrailVisible === '0') {
+  trailToggle.checked = false;
+  applyTrailVisibility(false);
+}
+trailToggle.addEventListener('change', () => {
+  applyTrailVisibility(trailToggle.checked);
+  localStorage.setItem(TRAIL_VISIBLE_KEY, trailToggle.checked ? '1' : '0');
+});
 refreshPresetSelect();
 applyParamsToUI();
 wireSliders();
